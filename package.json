@@ -1,0 +1,15 @@
+{
+  "name": "snapyt-api",
+  "version": "1.0.0",
+  "description": "Snapyt API Wrapper",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "node-fetch": "^2.7.0"
+  },
+  "engines": {
+    "node": ">=18.x"
+  }
+}
