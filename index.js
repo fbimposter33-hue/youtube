@@ -101,12 +101,13 @@ export default async function handler(req, res) {
     return;
   }
 
-  const protocol = req.headers['x-forwarded-proto'] || 'http';
+  const protocol = req.headers['x-forwarded-proto'] || 'https';
   const fullUrl = `${protocol}://${req.headers.host}${req.url}`;
   const urlObj = new URL(fullUrl);
   const pathname = urlObj.pathname;
 
-  if (pathname === '/api/formats' || pathname === '/' || pathname === '') {
+  // ১. ফরম্যাট ফেচ করার রুট
+  if (pathname === '/' || pathname === '/api/formats') {
     const videoUrl = urlObj.searchParams.get('url');
     if (!videoUrl) {
       return jsonResponse(res, { error: 'Missing ?url= parameter' }, 400);
@@ -122,6 +123,56 @@ export default async function handler(req, res) {
     } catch (e) {
       return jsonResponse(res, { error: e.message }, 500);
     }
+  }
+
+  // ২. নতুন প্রক্সি রাউট (/proxy?url=...) যা সরাসরি স্ন্যাপাইটের ফাইল স্ট্রিম করবে
+  if (pathname === '/proxy') {
+    const targetUrl = urlObj.searchParams.get('url');
+    if (!targetUrl) {
+      res.writeHead(400, { 'Content-Type': 'text/plain', ...CORS_HEADERS });
+      res.end('Missing ?url= parameter');
+      return;
+    }
+
+    try {
+      const response = await fetch(targetUrl, {
+        headers: {
+          'User-Agent': UA,
+          'Referer': SITE,
+          'Origin': SITE,
+        },
+      });
+
+      if (!response.ok) {
+        res.writeHead(response.status, { 'Content-Type': 'text/plain', ...CORS_HEADERS });
+        res.end(`Proxy fetch failed with status ${response.status}`);
+        return;
+      }
+
+      // অরিজিনাল ফাইলের হেডার্স (Content-Type, Content-Length ইত্যাদি) ব্রাউজারে পাস করে দেওয়া
+      const resHeaders = {
+        ...CORS_HEADERS,
+        'Content-Type': response.headers.get('content-type') || 'application/octet-stream',
+      };
+      if (response.headers.get('content-length')) {
+        resHeaders['Content-Length'] = response.headers.get('content-length');
+      }
+
+      res.writeHead(200, resHeaders);
+
+      // বাইনারি স্ট্রিম পাইপ করে ব্রাউজারে পাঠিয়ে দেওয়া
+      const reader = response.body.getReader();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        res.write(value);
+      }
+      res.end();
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'text/plain', ...CORS_HEADERS });
+      res.end('Proxy Error: ' + err.message);
+    }
+    return;
   }
 
   return jsonResponse(res, { error: 'Not Found' }, 404);
